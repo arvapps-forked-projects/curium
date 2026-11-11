@@ -1,13 +1,12 @@
 import { useEffect, useRef } from "react";
 import { gsap } from "gsap";
-import { Shield, Palette, Scan, ArrowRight, Heart } from "lucide-react";
-import icon from "../icon.png";
+import { ShieldIcon, PaletteIcon, ScanIcon, ArrowRightIcon, HeartIcon } from "@phosphor-icons/react";
 import { TextReveal } from "./TextReveal";
 
 const FEATURES = [
-  { icon: Shield, text: "Fully offline, zero tracking" },
-  { icon: Palette, text: "Deep customization, logos, themes" },
-  { icon: Scan, text: "Scan, reskin, and re-export any QR" },
+  { icon: ShieldIcon, text: "Fully offline, zero tracking" },
+  { icon: PaletteIcon, text: "Deep customization, logos, themes" },
+  { icon: ScanIcon, text: "Scan, reskin, and re-export any QR" },
 ];
 
 interface WelcomeProps {
@@ -44,10 +43,8 @@ export function Welcome({ onDone }: WelcomeProps) {
   return (
     <div ref={rootRef} className="welcome-screen">
       <div className="welcome-content">
-        <div className="welcome-spacer" />
-
         <div ref={logoRef} className="welcome-logo-wrap">
-          <img src={icon} alt="Curium" className="welcome-logo" />
+          <img src='./icon.png' alt="Curium" className="welcome-logo" />
         </div>
 
         <div ref={titleRef} className="welcome-title"><TextReveal text="Welcome to Curium" per="word" /></div>
@@ -72,10 +69,10 @@ export function Welcome({ onDone }: WelcomeProps) {
         <div ref={btnsRef} className="welcome-btns">
           <button className="welcome-btn-primary" onClick={handleDone}>
             Get Started
-            <ArrowRight size={16} />
+            <ArrowRightIcon size={16} />
           </button>
           <button className="welcome-btn-secondary" onClick={handleDone}>
-            <Heart size={14} />
+            <HeartIcon size={14} />
             Support the project
           </button>
         </div>

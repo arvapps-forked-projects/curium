@@ -30,67 +30,86 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # ── macOS (.dmg) ───────────────────────────────────────────────────
+          # ── macOS (.dmg + .app.tar.gz for updater) ──────────────────────────
           - platform: macos-14
-            args: "--target aarch64-apple-darwin --bundles dmg"
+            platform_group: macos
+            args: "--target aarch64-apple-darwin --bundles dmg,app"
             artifact_suffix: macos-arm64
             target: aarch64-apple-darwin
           - platform: macos-14
-            args: "--target x86_64-apple-darwin --bundles dmg"
+            platform_group: macos
+            args: "--target x86_64-apple-darwin --bundles dmg,app"
             artifact_suffix: macos-x64
             target: x86_64-apple-darwin
 
           # ── Windows (.exe via NSIS) ────────────────────────────────────────
           - platform: windows-latest
+            platform_group: windows
             args: "--target x86_64-pc-windows-msvc --bundles nsis"
             artifact_suffix: windows-x64
             target: x86_64-pc-windows-msvc
           - platform: windows-latest
+            platform_group: windows
             args: "--target aarch64-pc-windows-msvc --bundles nsis"
             artifact_suffix: windows-arm64
             target: aarch64-pc-windows-msvc
 
-          # ── Linux (.AppImage) ──────────────────────────────────────────────
+          # ── Linux (tarball — no AppImage due to upstream bundler issues) ──
           - platform: ubuntu-22.04
-            args: "--target x86_64-unknown-linux-gnu --bundles appimage"
+            platform_group: linux
+            args: "--target x86_64-unknown-linux-gnu --no-bundle"
             artifact_suffix: linux-x64
             target: x86_64-unknown-linux-gnu
           - platform: ubuntu-24.04-arm
-            args: "--target aarch64-unknown-linux-gnu --bundles appimage"
+            platform_group: linux
+            args: "--target aarch64-unknown-linux-gnu --no-bundle"
             artifact_suffix: linux-arm64
             target: aarch64-unknown-linux-gnu
 
     runs-on: ${{ matrix.platform }}
     timeout-minutes: 60
-    defaults:
-      run:
-        working-directory: packages/desktop
 
     steps:
+      - name: Check platform filter
+        id: filter
+        if: >-
+          github.event_name == 'push' ||
+          github.event.inputs.platform == 'all' ||
+          github.event.inputs.platform == matrix.platform_group
+        shell: bash
+        run: echo "run=true" >> "$GITHUB_OUTPUT"
+
       - name: Checkout
+        if: steps.filter.outputs.run == 'true'
         uses: actions/checkout@v6
 
       - name: Setup Node.js
+        if: steps.filter.outputs.run == 'true'
         uses: actions/setup-node@v6
         with:
           node-version: lts/*
 
       - name: Enable Corepack
+        if: steps.filter.outputs.run == 'true'
         run: corepack enable && corepack prepare pnpm@11.8.0 --activate
 
       - name: Install Rust stable
+        if: steps.filter.outputs.run == 'true'
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
 
       - name: Rust cache
+        if: steps.filter.outputs.run == 'true'
         uses: swatinem/rust-cache@v2
         with:
           workspaces: packages/desktop/src-tauri -> target
           shared-key: ${{ matrix.artifact_suffix }}
 
       - name: Install Linux dependencies (x64)
-        if: runner.os == 'Linux' && matrix.target == 'x86_64-unknown-linux-gnu'
+        if: >-
+          steps.filter.outputs.run == 'true' &&
+          runner.os == 'Linux' && matrix.target == 'x86_64-unknown-linux-gnu'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -101,7 +120,9 @@ jobs:
             xdg-utils
 
       - name: Install Linux dependencies (arm64)
-        if: runner.os == 'Linux' && matrix.target == 'aarch64-unknown-linux-gnu'
+        if: >-
+          steps.filter.outputs.run == 'true' &&
+          runner.os == 'Linux' && matrix.target == 'aarch64-unknown-linux-gnu'
         run: |
           sudo dpkg --add-architecture arm64
           sudo apt-get update
@@ -113,12 +134,15 @@ jobs:
             xdg-utils
 
       - name: Install frontend dependencies
+        if: steps.filter.outputs.run == 'true'
         run: corepack pnpm install --frozen-lockfile
 
       - name: Build desktop app
+        if: steps.filter.outputs.run == 'true'
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         with:
           # Do not create a release — Android workflow handles that
           releaseId: ""
@@ -126,14 +150,85 @@ jobs:
           tauriScript: corepack pnpm exec tauri
           args: ${{ matrix.args }}
 
+      - name: Package Linux tarball
+        if: >-
+          steps.filter.outputs.run == 'true' &&
+          runner.os == 'Linux'
+        working-directory: packages/desktop
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+
+          VERSION="${GITHUB_REF_NAME#v}"
+          ARCH="${{ matrix.target == 'x86_64-unknown-linux-gnu' && 'x86_64' || 'aarch64' }}"
+          STAGING_DIR="curium-${VERSION}-linux-${ARCH}"
+
+          mkdir -p "${STAGING_DIR}/bin"
+          mkdir -p "${STAGING_DIR}/share/icons/hicolor/512x512/apps"
+          mkdir -p "${STAGING_DIR}/share/applications"
+
+          # Copy binary
+          BINARY=$(find src-tauri/target/*/release -maxdepth 1 -name 'curium' -type f ! -name '*.d' | head -1)
+          cp "${BINARY}" "${STAGING_DIR}/bin/curium"
+          chmod +x "${STAGING_DIR}/bin/curium"
+
+          # Copy icon
+          cp src-tauri/icons/icon.png "${STAGING_DIR}/share/icons/hicolor/512x512/apps/curium.png"
+
+          # Create desktop entry
+          printf '%s\n' \
+            "[Desktop Entry]" \
+            "Name=Curium" \
+            "Comment=Privacy-first QR code customizer and generator" \
+            "Exec=curium %U" \
+            "Icon=curium" \
+            "Terminal=false" \
+            "Type=Application" \
+            "Categories=Utility;" \
+            > "${STAGING_DIR}/share/applications/curium.desktop"
+
+          # Create tarball
+          TARBALL="curium_${VERSION}_linux-${ARCH}.tar.gz"
+          tar -czf "${TARBALL}" "${STAGING_DIR}"
+          rm -rf "${STAGING_DIR}"
+
+          # Sign tarball
+          corepack pnpm exec tauri signer sign "${TARBALL}"
+          test -s "${TARBALL}.sig"
+
+          # Generate checksum
+          CHECKSUM_FILE="curium_${VERSION}_linux-${ARCH}.sha256"
+          sha256sum "${TARBALL}" > "${CHECKSUM_FILE}"
+
+          # GPG sign checksums
+          printf '%s' "${GPG_PRIVATE_KEY}" | base64 --decode | gpg --batch --quiet --import
+          GPG_FINGERPRINT="C7EB5A5C29492428E4658CD98A836CEB0E21C555"
+          gpg --batch --list-secret-keys "$GPG_FINGERPRINT" >/dev/null
+          echo "Signing with key fingerprint: ${GPG_FINGERPRINT}"
+          gpg --batch --yes --pinentry-mode loopback --local-user "$GPG_FINGERPRINT" --detach-sign --armor "${CHECKSUM_FILE}"
+          test -s "${CHECKSUM_FILE}.asc"
+
+          echo "Created ${TARBALL}"
+
       - name: Upload desktop artifacts
+        if: steps.filter.outputs.run == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: desktop-${{ matrix.artifact_suffix }}
           path: |
             packages/desktop/src-tauri/target/*/release/bundle/**/*.dmg
+            packages/desktop/src-tauri/target/*/release/bundle/**/*.dmg.sig
+            packages/desktop/src-tauri/target/*/release/bundle/**/*.app.tar.gz
+            packages/desktop/src-tauri/target/*/release/bundle/**/*.app.tar.gz.sig
             packages/desktop/src-tauri/target/*/release/bundle/**/*.exe
-            packages/desktop/src-tauri/target/*/release/bundle/**/*.AppImage
+            packages/desktop/src-tauri/target/*/release/bundle/**/*.exe.sig
+            packages/desktop/curium_*.tar.gz
+            packages/desktop/curium_*.tar.gz.sig
+            packages/desktop/curium_*.sha256
+            packages/desktop/curium_*.sha256.asc
           if-no-files-found: warn
           retention-days: 14
 
@@ -141,45 +236,169 @@ jobs:
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 90
     steps:
       - name: Download all desktop artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: desktop-*
           path: desktop-artifacts
-          merge-multiple: true
+          merge-multiple: false
 
-      - name: Upload to existing release
+      - name: Upload to existing release and generate updater JSON
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
           TAG="${{ github.ref_name }}"
+          VERSION="${TAG#v}"
+          REPO="${{ github.repository }}"
 
-          # Check if release exists (created by Android workflow)
-          if ! gh release view "$TAG" &>/dev/null; then
-            echo "Release $TAG not found — creating it now"
-            gh release create "$TAG" \
-              --title "Curium $TAG" \
-              --generate-notes \
-              --draft=true
-          fi
+          # Wait for Android workflow to create the release (up to 90 min)
+          WAITED=0
+          while ! gh release list --repo "$REPO" --limit 1000 --json tagName --jq '.[].tagName' | grep -Fxq -- "$TAG"; do
+            if [ "$WAITED" -ge 5400 ]; then
+              echo "Timed out waiting for release $TAG"
+              exit 1
+            fi
+            echo "Waiting for release $TAG... (${WAITED}s)"
+            sleep 30
+            WAITED=$((WAITED + 30))
+          done
+          echo "Release $TAG found"
 
           # Upload all desktop artifacts to the release
-          shopt -s nullglob
-          FILES=(
-            desktop-artifacts/**/*.dmg
-            desktop-artifacts/**/*.exe
-            desktop-artifacts/**/*.AppImage
-            desktop-artifacts/**/*.nsis.zip
-            desktop-artifacts/**/*.nsis.zip.sig
-          )
+
+          # Rename macOS .app.tar.gz to consistent naming (find is recursive, ** globs are not without globstar)
+          find desktop-artifacts -name "Curium.app.tar.gz" | while IFS= read -r f; do
+            dir=$(dirname "$f")
+            if [[ "$f" == *arm64* ]]; then
+              mv "$f" "${dir}/curium_${VERSION}_macos-arm64.app.tar.gz"
+            elif [[ "$f" == *x64* ]]; then
+              mv "$f" "${dir}/curium_${VERSION}_macos-x64.app.tar.gz"
+            fi
+          done
+          find desktop-artifacts -name "Curium.app.tar.gz.sig" | while IFS= read -r f; do
+            dir=$(dirname "$f")
+            if [[ "$f" == *arm64* ]]; then
+              mv "$f" "${dir}/curium_${VERSION}_macos-arm64.app.tar.gz.sig"
+            elif [[ "$f" == *x64* ]]; then
+              mv "$f" "${dir}/curium_${VERSION}_macos-x64.app.tar.gz.sig"
+            fi
+          done
+          # Verify all macOS .app.tar.gz files were renamed
+          UNRENAMED=$(find desktop-artifacts -name "Curium.app.tar.gz" 2>/dev/null)
+          if [ -n "$UNRENAMED" ]; then
+            echo "ERROR: macOS .app.tar.gz files were not renamed"
+            echo "$UNRENAMED"
+            exit 1
+          fi
+
+          # Collect all artifacts via find (recursive), not ** globs
+          FILES=()
+          while IFS= read -r f; do
+            FILES+=("$f")
+          done < <(find desktop-artifacts \( \
+            -name "*.dmg" -o \
+            -name "*.dmg.sig" -o \
+            -name "*.app.tar.gz" -o \
+            -name "*.app.tar.gz.sig" -o \
+            -name "*.exe" -o \
+            -name "*.exe.sig" -o \
+            -name "*_linux-*.tar.gz" -o \
+            -name "*_linux-*.tar.gz.sig" -o \
+            -name "*.sha256" -o \
+            -name "*.sha256.asc" \
+          \))
 
           if [ ${#FILES[@]} -gt 0 ]; then
-            gh release upload "$TAG" "${FILES[@]}" --clobber
+            gh release upload "$TAG" "${FILES[@]}" --repo "$REPO" --clobber
             echo "Uploaded ${#FILES[@]} desktop artifacts to $TAG"
           else
             echo "No desktop artifacts found to upload"
+          fi
+
+          # Generate latest.json for the updater
+          PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          BASE_URL="https://github.com/${REPO}/releases/download/${TAG}"
+
+          # Helper: read signature file content
+          read_sig() {
+            local f="$1"
+            if [ -f "$f" ]; then
+              cat "$f"
+            else
+              echo ""
+            fi
+          }
+
+          # Find updater artifacts and build platforms JSON
+          PLATFORMS="{}"
+
+          # Windows x64 NSIS (.exe reused by updater in v2)
+          NSIS_EXE=$(find desktop-artifacts -name "*_x64-setup.exe" ! -name "*.sig" 2>/dev/null | head -1)
+          NSIS_SIG=$(find desktop-artifacts -name "*_x64-setup.exe.sig" 2>/dev/null | head -1)
+          if [ -n "$NSIS_EXE" ]; then
+            NSIS_FILE=$(basename "$NSIS_EXE")
+            SIG=$(read_sig "$NSIS_SIG")
+            PLATFORMS=$(echo "$PLATFORMS" | jq \
+              --arg url "${BASE_URL}/${NSIS_FILE}" \
+              --arg sig "$SIG" \
+              '. + {"windows-x86_64": {"url": $url, "signature": $sig}}')
+          fi
+
+          # Windows arm64 NSIS (.exe reused by updater in v2)
+          NSIS_ARM=$(find desktop-artifacts -name "*_aarch64-setup.exe" ! -name "*.sig" 2>/dev/null | head -1)
+          NSIS_ARM_SIG=$(find desktop-artifacts -name "*_aarch64-setup.exe.sig" 2>/dev/null | head -1)
+          if [ -n "$NSIS_ARM" ]; then
+            NSIS_ARM_FILE=$(basename "$NSIS_ARM")
+            SIG=$(read_sig "$NSIS_ARM_SIG")
+            PLATFORMS=$(echo "$PLATFORMS" | jq \
+              --arg url "${BASE_URL}/${NSIS_ARM_FILE}" \
+              --arg sig "$SIG" \
+              '. + {"windows-aarch64": {"url": $url, "signature": $sig}}')
+          fi
+
+          # Note: Linux tarballs are not supported by Tauri's updater.
+          # Linux users update by re-running the installer script.
+
+          # macOS arm64 .app.tar.gz (updater payload)
+          APP_ARM=$(find desktop-artifacts -name "curium_*_macos-arm64.app.tar.gz" 2>/dev/null | head -1)
+          APP_ARM_SIG=$(find desktop-artifacts -name "curium_*_macos-arm64.app.tar.gz.sig" 2>/dev/null | head -1)
+          if [ -n "$APP_ARM" ]; then
+            APP_ARM_FILE=$(basename "$APP_ARM")
+            SIG=$(read_sig "$APP_ARM_SIG")
+            PLATFORMS=$(echo "$PLATFORMS" | jq \
+              --arg url "${BASE_URL}/${APP_ARM_FILE}" \
+              --arg sig "$SIG" \
+              '. + {"darwin-aarch64": {"url": $url, "signature": $sig}}')
+          fi
+
+          # macOS x64 .app.tar.gz (updater payload)
+          APP_X64=$(find desktop-artifacts -name "curium_*_macos-x64.app.tar.gz" 2>/dev/null | head -1)
+          APP_X64_SIG=$(find desktop-artifacts -name "curium_*_macos-x64.app.tar.gz.sig" 2>/dev/null | head -1)
+          if [ -n "$APP_X64" ]; then
+            APP_X64_FILE=$(basename "$APP_X64")
+            SIG=$(read_sig "$APP_X64_SIG")
+            PLATFORMS=$(echo "$PLATFORMS" | jq \
+              --arg url "${BASE_URL}/${APP_X64_FILE}" \
+              --arg sig "$SIG" \
+              '. + {"darwin-x86_64": {"url": $url, "signature": $sig}}')
+          fi
+
+          # Only upload if we have platforms
+          if [ "$(echo "$PLATFORMS" | jq 'keys | length')" -gt 0 ]; then
+            jq -n \
+              --arg version "$VERSION" \
+              --arg pub_date "$PUB_DATE" \
+              --argjson platforms "$PLATFORMS" \
+              '{version: $version, notes: "Curium $version", pub_date: $pub_date, platforms: $platforms}' \
+              > latest.json
+
+            gh release upload "$TAG" latest.json --repo "$REPO" --clobber
+            echo "Generated and uploaded latest.json"
+            cat latest.json
+          else
+            echo "No updater artifacts found, skipping latest.json"
           fi

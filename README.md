@@ -12,7 +12,7 @@
 <p align="center">
   <img src="https://badgen.net/github/release/nylxar/curium?labelColor=111&color=555" alt="Latest Release" />
   <img src="https://badgen.net/badge/platform/Android%20%7C%20iOS%20%7C%20Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Web/111?labelColor=111&color=555" alt="Platforms" />
-  <img src="https://badgen.net/badge/license/GPL-3.0/111?labelColor=111&color=555" alt="License" />
+  <img src="https://badgen.net/badge/license/AGPL-3.0/111?labelColor=111&color=555" alt="License" />
   <img src="https://api.visitorbadge.io/api/visitors?path=nylxar%2Fcurium&label=downloads&style=flat&countColor=%23555&labelColor=%23111" alt="Downloads" />
 </p>
 
@@ -36,6 +36,8 @@ With official releases for Android, Windows, macOS, Linux, CLI, Web, and eventua
 
 > **Preview builds** may feel rough or unpolished and may contain bugs. They are intended for early testing and feedback.
 
+> **Not sure which build to download?** Visit [curium.design](https://curium.design) — it auto-detects your device and recommends the correct binary. The download page shows a checkmark next to the matching build. On Android, if the wrong build is downloaded and you're unsure of your device type, grab the **universal APK** — it works on all architectures.
+
 ---
 ### Status
 <picture><source media="(prefers-color-scheme: light)" srcset="https://www.shieldcn.dev/github/last-commit/nylxar/curium.svg?variant=secondary&amp;size=xs&amp;mode=dark"><img alt="Last commit" src="https://www.shieldcn.dev/github/last-commit/nylxar/curium.svg?variant=secondary&amp;size=xs&amp;mode=light"></picture>
@@ -47,7 +49,11 @@ With official releases for Android, Windows, macOS, Linux, CLI, Web, and eventua
 ---
 
 ### Screenshots
-
+<table>
+  <tr>
+    <td><img src="https://res.cloudinary.com/dge9abfkx/image/upload/v1786101127/Slide_16_9_-_2_kyhap0.png" alt="Curium for Computers" width="100%" /></td>
+  </tr>
+</table>
 <table>
   <tr>
     <td><img src="https://res.cloudinary.com/dge9abfkx/image/upload/v1781208451/Frame_1_vfw5ud.png" alt="Generator" width="100%" /></td>
@@ -62,6 +68,29 @@ With official releases for Android, Windows, macOS, Linux, CLI, Web, and eventua
     <td><img src="https://res.cloudinary.com/dge9abfkx/image/upload/v1781208463/Frame_7_lsttw9.png" alt="Scan" width="100%" /></td>
   </tr>
 </table>
+
+---
+
+### Install on Computer
+
+Curium for Desktop (MacOS, Windows, and Linux) is in beta. Expect some things to break.
+
+**macOS & Windows:** Download the `.dmg` or `.exe` from [Releases](https://github.com/nylxar/curium/releases) and install as usual.
+
+**Linux:** Make sure webkit2gtk-4.1 is installed, then install with one command:
+```bash
+curl -fsSL https://curium.design/install.sh | sh -s --
+```
+Or download and run manually:
+```bash
+curl -fsSL https://curium.design/install.sh -o install.sh
+sh install.sh
+```
+The installer handles PATH setup, icons, and desktop entries. To remove: `sh install.sh --uninstall`.
+
+To install a specific version, set `CIUM_VERSION`, for example: `CIUM_VERSION=0.6.4 sh install.sh`.
+
+Linux users facing issues with `webkit2gtk-4.1` may use the [web](https://curium.design) until Tauri upstream or I come to a better solution.
 
 ---
 
@@ -128,7 +157,6 @@ With official releases for Android, Windows, macOS, Linux, CLI, Web, and eventua
 ## What's Coming
 
 - [ ] CLI tool — headless QR generation for scripts and CI/CD
-- [ ] Web app — browser-based generator
 - [ ] iOS app — full feature parity with Android
 - [ ] QR-from-image — upload an image, generate a QR that visually matches its color palette
 - [ ] Animated QR — QR that transitions between two states
@@ -150,7 +178,7 @@ With official releases for Android, Windows, macOS, Linux, CLI, Web, and eventua
 | Navigation | Expo Router | React Router |
 | Animations | React Native Reanimated 4 | GSAP |
 | Gestures | react-native-gesture-handler | Native events |
-| Camera | react-native-vision-camera | — |
+| Camera | react-native-camera-tool | — |
 | Storage | AsyncStorage | localStorage / tauri-plugin-store |
 | Bundler | Metro | rsbuild |
 | Language | TypeScript | TypeScript |
@@ -218,7 +246,7 @@ pnpm tauri dev
 Releases are built automatically via GitHub Actions when a `v*` tag is pushed.
 
 - **Android**: Creates draft release with APK/AAB splits
-- **Desktop**: Builds DMG (macOS), NSIS (Windows), AppImage (Linux) and uploads to the same release
+- **Desktop**: Builds DMG (macOS), NSIS (Windows), tarball (Linux) and uploads to the same release
 
 Or download the latest from [Releases](https://github.com/nylxar/curium/releases).
 
@@ -246,10 +274,12 @@ No microphone. No location. No network access.
 
 ## License
 
-[GNU General Public License v3.0](LICENSE)
+[GNU Affero General Public License v3.0](LICENSE)
 
 ---
 
 <p align="center">
-  Built with care. No telemetry. No accounts. Just codes.
+  <a href="https://curium.design">curium.design</a><br/>
+  Built with care. No telemetry. No accounts. Just codes.<br/>
+  Contact: <a href="mailto:hi@curium.design">hi@curium.design</a>
 </p>
